@@ -316,8 +316,33 @@ pub(crate) fn write_buffer(buffer: &[u8], f: &mut fmt::Formatter<'_>) -> fmt::Re
     if let Ok(buffer) = str::from_utf8(buffer) {
         write!(f, "{}", buffer)
     } else {
-        write!(f, "{:?}", buffer)
+        write_bytes(buffer, f)
     }
+}
+
+pub(crate) fn write_bytes(buffer: &[u8], f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "b\"")?;
+    for &b in buffer {
+        let repl = match b {
+            b'\n' => "\\n",
+            b'\r' => "\\r",
+            b'\t' => "\\t",
+            b'\\' => "\\\\",
+            b'\"' => "\\\"",
+            b'\0' => "\\0",
+            0x20..=0x7e => {
+                // ASCII printable characters
+                write!(f, "{}", b as char)?;
+                continue;
+            }
+            _ => {
+                write!(f, "\\x{:02x}", b)?;
+                continue;
+            }
+        };
+        write!(f, "{}", repl)?;
+    }
+    write!(f, "\"")
 }
 
 #[derive(Debug)]
@@ -333,6 +358,13 @@ impl DebugBuffer {
 
 impl fmt::Display for DebugBuffer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write_buffer(&self.buffer, f)
+        if self.buffer.len() > 8192 {
+            write!(f, "<{} bytes total>", self.buffer.len())?;
+            write_bytes(&self.buffer[..2048], f)?;
+            write!(f, "...<{} bytes omitted>...", self.buffer.len() - 4096)?;
+            write_bytes(&self.buffer[self.buffer.len() - 2048..], f)
+        } else {
+            write_buffer(&self.buffer, f)
+        }
     }
 }
